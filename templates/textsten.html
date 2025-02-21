@@ -1,0 +1,29 @@
+{% include 'Afterlogin.html' %}
+
+
+
+    <form action = "/uploadtext" method = "post" enctype="multipart/form-data" >
+        <div style="margin-left: 30%;">
+            <br/>
+            <br/>
+            <br/>
+            
+            <p>Cover Image</p>
+            <input type="file" name="coverimage"  style="border:2px solid black;width: 50%;text-align: center;color: red;"/>
+            <br/>
+            <br/>
+            <br/>
+            <input list="browsers"  id="browser" placeholder="select user" name="user" required style="border:2px solid black;width:25%;text-align: center;color: red;">
+                  <br/><br/><br/>
+                  <datalist id="browsers">
+                      {% for x in valu%}
+                         <option value="{{x[0]}}-{{x[1]}}"/>
+                      {% endfor%}
+                  </datalist>
+            <input type="text" name="count" placeholder="Text" style="border:2px solid black;text-align: center;width: 50%;color: red;"/>
+            
+            <input type = "submit" value="Upload" style="background-color: blue;width: 50%;text-align: center;">
+        </div>
+    </form>
+</body>
+</html>

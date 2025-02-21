@@ -1,0 +1,32 @@
+{% include 'Afterlogin.html' %}
+
+
+
+    <form action = "/uploadfile" method = "post" enctype="multipart/form-data" >
+        <div style="margin-left: 30%;">
+            <br/>
+            <br/>
+            <br/>
+            <p>My Image</p>
+            <input type="file" name="file"  style="border:2px solid black;width: 50%;text-align: center;color: red;"/>
+            <br/>
+            <br/>
+            <br/>
+            <p>Cover Image</p>
+            <input type="file" name="coverimage"  style="border:2px solid black;width: 50%;text-align: center;color: red;"/>
+            <br/>
+            <br/>
+            <br/>
+            <input type="text" name="count" placeholder="total user" style="border:2px solid black;text-align: center;width: 50%;color: red;"/>
+            <br/>
+            <br/>
+            <br/>
+            <input type="text" name="bal" placeholder="total sharing" style="border:2px solid black;width: 50%;text-align: center;color: red;"/>
+            <br/>
+            <br/>
+            <br/>
+            <input type = "submit" value="Upload" style="background-color: blue;width: 50%;text-align: center;">
+        </div>
+    </form>
+</body>
+</html>

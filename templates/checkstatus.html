@@ -1,0 +1,30 @@
+{% include 'Afterlogin.html' %}
+<a href="/viewshared"><button class="btn btn-primary">Back</button></a>
+<h5>Total Approval required - {{count[4]-1}}</h5>
+<table class="table table-bordered table-hover">
+    <thead>
+        <tr>
+            <th>userid</th>
+            <th>Stautus</th>
+
+        </tr>
+    </thead>
+    <tbody>
+        {%for k in val%}
+            <tr>
+                <td>{{k[1]}}</td>
+
+                    {% if k[2]==None  %}
+                       <td>Not Approved</td>
+                    {% else %}
+                        <td>Approved</td>
+                    {% endif %}
+
+
+
+
+            </tr>
+        {%endfor%}
+
+    </tbody>
+</table>

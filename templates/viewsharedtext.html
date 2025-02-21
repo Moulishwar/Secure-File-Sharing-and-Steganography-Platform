@@ -1,0 +1,29 @@
+{% include 'Afterlogin.html' %}
+
+<p style="color: red;">{{decoded_message_loaded}}</p>
+<table class="table table-bordered table-hover">
+    <thead>
+        <tr>
+            <th>File id</th>
+            <th>File Name</th>
+            
+            <th>Userid</th>
+            <th>Sharedid</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {%for k in y%}
+            <tr>
+                <td>{{k[0]}}</td>
+                <td>{{k[1]}}</td>
+               
+                <td>{{k[2]}}</td>
+                <td>{{k[3]}}</td>
+                <td><a href="/textdecrypt?fileid={{k[0]}}"><button class="btn btn-primary">Decrypt</button></a></td>
+
+            </tr>
+        {%endfor%}
+
+    </tbody>
+</table>

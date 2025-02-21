@@ -1,0 +1,31 @@
+{% include 'Afterlogin.html' %}
+<table class="table table-bordered table-hover">
+    <thead>
+        <tr>
+            <th>File id</th>
+            <th>File Name</th>
+            <th>Request access</th>
+            <th>Total approval Req</th>
+            <th>Total approval Rec</th>
+        </tr>
+    </thead>
+    <tbody>
+        {%for k in y%}
+            <tr>
+                <td><a href="/checkstatus?fileid={{k[1]}}"><button class="btn btn-primary">{{k[0]}}</button></a></td>
+                <td>{{k[3]}}</td>
+                 {% if k[5]=="Request"  %}
+                       <td><a href="/requestpermission?fileid={{k[1]}}"><button class="btn btn-primary">{{k[5]}}</button></a></td>
+                    {% elif k[6]==k[7]%}
+                        <td><a href="/decrypt?fileid={{k[1]}}"><button class="btn btn-primary">decrypt</button></a></td>
+                    {% else %}
+                        <td>Already requested</td>
+                {% endif %}
+                <td>{{k[6]}}</td>
+                <td>{{k[7]}}</td>
+
+            </tr>
+        {%endfor%}
+
+    </tbody>
+</table>
