@@ -50,14 +50,11 @@ def create_app(config: Config | None = None) -> Flask:
 
 
 def _register_storage(app: Flask, cfg: Config) -> None:
-    from .storage import LocalStorage
+    from .storage import create_storage
 
-    if cfg.STORAGE_BACKEND != "local":
-        raise RuntimeError(
-            f"Unknown storage backend {cfg.STORAGE_BACKEND!r}. "
-            "Only 'local' is implemented; S3/MinIO is the hosting-time swap."
-        )
-    app.extensions["storage"] = LocalStorage(cfg.STORAGE_PATH)
+    # Built once at startup so a misconfigured bucket fails the boot rather
+    # than the first upload.
+    app.extensions["storage"] = create_storage(cfg)
 
 
 def _register_error_handlers(app: Flask) -> None:

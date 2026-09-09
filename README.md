@@ -32,7 +32,7 @@ uv run flask --app stegoshare run
 Then open <http://127.0.0.1:5000>.
 
 ```bash
-uv run pytest                                # 120 tests
+uv run pytest                                # 169 tests
 ```
 
 ## How access control works
@@ -150,23 +150,49 @@ stegoshare/
   stc.py         syndrome trellis codes
   ecc.py         Reed-Solomon over header and body
   images.py      cover intake: content sniffing, bomb guard, format policy
-  storage.py     object storage abstraction (local now, S3/MinIO later)
+  storage.py     object storage: local disk or any S3-compatible service
   security.py    login_required, the authorization gate, audit
   auth.py        signup / login / logout
   shares.py      create, request, approve, open
   pipeline.py    orchestration + mandatory round-trip verification
 schema.sql
-tests/           120 tests, incl. steganalysis and corruption gates
+tests/           169 tests, incl. steganalysis and corruption gates
 ```
 
 ## Hosting
 
-Local development is the current target and every layer is built for hosting.
-What changes when you deploy:
+Every layer is config-driven, so deploying is a matter of changing values
+rather than code.
+
+**Object storage.** Two backends satisfy the same three-method contract and are
+covered by one shared suite of contract tests, so they cannot drift apart:
+
+```bash
+uv sync --extra s3
+
+STEGOSHARE_STORAGE=s3
+STEGOSHARE_S3_BUCKET=stegoshare-objects
+STEGOSHARE_S3_REGION=us-east-1
+# MinIO or Cloudflare R2 instead of AWS:
+STEGOSHARE_S3_ENDPOINT=http://127.0.0.1:9000
+```
+
+The bucket must be private. Credentials are deliberately not app config —
+boto3 resolves them from the environment, an instance role, or a profile, so a
+deployed instance can use a role and hold no long-lived key at all. A missing
+bucket name fails the boot, not the first upload.
+
+**Why there are no presigned URLs.** They are the usual advice for offloading
+downloads, and they do not fit this design: the bucket holds ciphertext under a
+per-share data key the recipient's browser never sees, so a direct URL would
+hand out unreadable bytes. Decryption stays server-side and objects are streamed
+from memory. That is a consequence of the server-held-keys trust model, and it
+also means an object is held in memory while it is decrypted — bounded by
+`MAX_CONTENT_LENGTH`, currently 25 MB.
+
+**Everything else:**
 
 - `STEGOSHARE_ENV=production` forces secure session cookies and adds HSTS.
-- Swap `STEGOSHARE_STORAGE` for an S3/MinIO backend implementing the three
-  methods in `storage.Storage`.
 - Point `STEGOSHARE_RATELIMIT_URI` at Redis; in-memory limits are per-worker.
 - Run under gunicorn behind a reverse proxy. Never `flask run`.
 - Move from SQLite to Postgres once there is more than one writer.

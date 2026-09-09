@@ -19,8 +19,14 @@ dependencies = [
 [project.scripts]
 stegoshare-init = "stegoshare.cli:main"
 
+[project.optional-dependencies]
+s3 = [
+    "boto3>=1.35",
+]
+
 [dependency-groups]
 dev = [
+    "moto[s3]>=5.0",
     "pytest>=9.0",
 ]
 
