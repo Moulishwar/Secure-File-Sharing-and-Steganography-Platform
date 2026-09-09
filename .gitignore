@@ -1,0 +1,35 @@
+# Secrets — never commit
+.env
+*.pem
+*.key
+
+# Databases — ship schema.sql, not binaries
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime artifacts from the legacy app
+upload/
+encrpyt/
+static/col/
+static/decrypt/
+
+# Local object storage (development backend)
+var/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
