@@ -30,10 +30,27 @@ STEGOSHARE_SECRET_KEY={secret_key}
 # in `grants`, which never touches the stored ciphertext.
 STEGOSHARE_FILE_KEK={file_kek}
 
-# Local development storage. Swap for S3/MinIO when hosting.
+# Local development storage.
 STEGOSHARE_STORAGE=local
 STEGOSHARE_DB_PATH={db_path}
 STEGOSHARE_STORAGE_PATH={storage_path}
+
+# --- object storage for hosting -------------------------------------------
+# Install the extra first:  uv sync --extra s3
+# The bucket must be private. Credentials are NOT set here -- boto3 resolves
+# them from the environment, an instance role, or a profile, so a deployed
+# instance can use a role and hold no long-lived key at all.
+#
+# STEGOSHARE_STORAGE=s3
+# STEGOSHARE_S3_BUCKET=stegoshare-objects
+# STEGOSHARE_S3_PREFIX=objects
+# STEGOSHARE_S3_REGION=us-east-1
+#
+# For MinIO or Cloudflare R2, point the endpoint at the service:
+# STEGOSHARE_S3_ENDPOINT=http://127.0.0.1:9000
+#
+# Defence in depth only -- objects are already encrypted before upload:
+# STEGOSHARE_S3_SSE=AES256
 """
 
 

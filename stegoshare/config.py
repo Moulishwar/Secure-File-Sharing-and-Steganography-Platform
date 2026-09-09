@@ -62,10 +62,29 @@ class Config:
         self.DB_PATH = Path(
             os.environ.get("STEGOSHARE_DB_PATH", REPO_ROOT / "var" / "stegoshare.db")
         )
-        self.STORAGE_BACKEND = os.environ.get("STEGOSHARE_STORAGE", "local")
+        self.STORAGE_BACKEND = os.environ.get("STEGOSHARE_STORAGE", "local").lower()
         self.STORAGE_PATH = Path(
             os.environ.get("STEGOSHARE_STORAGE_PATH", REPO_ROOT / "var" / "objects")
         )
+
+        # --- s3 backend ---------------------------------------------------
+        # Credentials are deliberately absent: boto3's own chain resolves them
+        # from the environment, an instance role, or a profile. A hosted
+        # instance should use a role and hold no long-lived key at all.
+        self.S3_BUCKET = os.environ.get("STEGOSHARE_S3_BUCKET", "")
+        self.S3_PREFIX = os.environ.get("STEGOSHARE_S3_PREFIX", "objects")
+        # Set for MinIO or R2; leave unset for AWS.
+        self.S3_ENDPOINT = os.environ.get("STEGOSHARE_S3_ENDPOINT", "")
+        self.S3_REGION = os.environ.get("STEGOSHARE_S3_REGION", "")
+        # Defence in depth only: objects are already AEAD-encrypted before they
+        # reach the bucket, so this protects against the storage provider's
+        # own disks, not against anyone who can call GetObject.
+        self.S3_SSE = os.environ.get("STEGOSHARE_S3_SSE", "")
+
+        if self.STORAGE_BACKEND == "s3" and not self.S3_BUCKET:
+            raise ConfigError(
+                "STEGOSHARE_STORAGE is 's3' but STEGOSHARE_S3_BUCKET is not set."
+            )
 
         # --- uploads -----------------------------------------------------
         # 25 MB request ceiling. Payload limits for inline mode are far
