@@ -5,15 +5,15 @@ carrier image is generated that reveals nothing about it.
 
 The design principle: **the carrier is not the payload.** A photo can only hide
 a couple of hundred kilobytes before statistical detectors notice, so the image
-carries a 104-byte capsule — a locator and a capability token — while the
-ciphertext lives in object storage. In a 12 MP cover that is under 0.003% of
+carries a 152-byte capsule — a locator and a capability token — while the
+ciphertext lives in object storage. In a 12 MP cover that is under 0.005% of
 capacity, which is why file size stops being a constraint.
 
 ## Two modes
 
 | Mode | The image carries | Size limit | Opening it needs |
 |---|---|---|---|
-| **Reference** | 104-byte locator + capability | none | image + password + an approved grant |
+| **Reference** | 152-byte locator + capability | none | image + password + an approved grant |
 | **Inline** | the encrypted content itself | ~45–220 KB in a phone photo | image + password only, no server |
 
 Reference mode is the platform. Inline mode is a self-contained covert channel.
@@ -32,7 +32,7 @@ uv run flask --app stegoshare run
 Then open <http://127.0.0.1:5000>.
 
 ```bash
-uv run pytest                                # 93 tests
+uv run pytest                                # 120 tests
 ```
 
 ## How access control works
@@ -73,17 +73,42 @@ Measured on a 1200×900 cover with a smooth sky over grainy ground:
 | uniform (v1) | 12,653 | 6,217 | baseline |
 | HILL + STC (v2) | 5,347 | **62** | **1%** of v1 |
 
-For a 104-byte reference capsule: 203 of 3,240,000 samples changed (0.006%),
-all by ±1, PSNR 90.2 dB, ~0.7 s to generate.
+For a 152-byte reference capsule: 310 of 3,240,000 samples changed (0.010%),
+all by ±1, PSNR 88.3 dB, ~1.9 s to generate.
 
-**One known limitation.** The 28-byte header must be readable before its own
-version byte is known, so it is embedded uniformly and cannot be cost-steered —
-the receiver would need cover costs it does not have. The STC-controlled body
-puts ~0 changes in smooth regions; the header scatters ~106 uniformly, which for
-a small capsule is over half the total. `tests/test_adaptive.py` pins this down.
+**One known limitation.** The header (28 bytes, 44 once its Reed-Solomon parity
+is added) must be readable before its own version byte is known, so it is
+embedded uniformly and cannot be cost-steered — the receiver would need cover
+costs it does not have. The STC-controlled body puts ~0 changes in smooth
+regions; the header scatters uniformly, which for a small capsule is over half
+the total. `tests/test_adaptive.py` pins this down.
 
 Carriers record their engine in the header, so anything issued under v1 keeps
 opening after the upgrade.
+
+## Corruption tolerance
+
+The capsule carries Reed-Solomon parity on both header and body, sitting *below*
+the AEAD so it repairs damage before authentication runs. Damage within reach is
+repaired and the tag verifies; damage beyond it fails the tag and returns
+nothing. Security is unchanged — parity over ciphertext leaks nothing, and a
+mis-correction fails closed rather than yielding chosen plaintext.
+
+Measured on a 1200×900 carrier:
+
+| Damage | without RS | with RS |
+|---|---|---|
+| 200 random samples flipped | fails | **opens** |
+| 16×16 pasted patch | 1/10 | **10/10** |
+| 32×32 pasted patch | 0/10 | 2/10 |
+| 48×48 pasted patch | 0/10 | 0/10 |
+
+**A scuff survives; an edit does not.** Raising parity buys one patch size for a
+much larger capsule and then stops helping — a bigger body occupies more carrier
+positions, so it catches more of any given patch. Damage tolerance and
+undetectability pull against each other, and this design favours undetectability.
+RS does nothing at all against recompression; only the lossless-PNG discipline
+protects against that.
 
 ## Steganalysis gate
 
@@ -123,6 +148,7 @@ stegoshare/
   stego.py       embedding engine: position selection + version dispatch
   costs.py       HILL cost model -- where the image can absorb a change
   stc.py         syndrome trellis codes
+  ecc.py         Reed-Solomon over header and body
   images.py      cover intake: content sniffing, bomb guard, format policy
   storage.py     object storage abstraction (local now, S3/MinIO later)
   security.py    login_required, the authorization gate, audit
@@ -130,7 +156,7 @@ stegoshare/
   shares.py      create, request, approve, open
   pipeline.py    orchestration + mandatory round-trip verification
 schema.sql
-tests/           93 tests, including a steganalysis gate
+tests/           120 tests, incl. steganalysis and corruption gates
 ```
 
 ## Hosting

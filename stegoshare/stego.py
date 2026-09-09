@@ -40,7 +40,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 from PIL import Image
 
 from . import capsule as cap
-from . import stc
+from . import ecc, stc
 from .costs import hill_costs
 
 __all__ = [
@@ -199,9 +199,13 @@ def carrier_samples(payload_len: int, version: int = cap.CURRENT_VERSION) -> int
     width is chosen larger when the budget allows. The header is always
     LSB-matched and so needs one sample per bit.
     """
-    body_bits = (cap.BODY_OVERHEAD + payload_len) * 8
-    width = MIN_STC_WIDTH if version == cap.VERSION_STC else 1
-    return cap.HEADER_LEN * 8 + body_bits * width
+    body_len = cap.BODY_OVERHEAD + payload_len
+    header_len = cap.HEADER_LEN
+    if version == cap.VERSION_RS:
+        body_len = ecc.protected_body_len(body_len)
+        header_len = ecc.protected_header_len(header_len)
+    width = MIN_STC_WIDTH if version in cap.STC_VERSIONS else 1
+    return header_len * 8 + body_len * 8 * width
 
 
 # --------------------------------------------------------------------------
@@ -278,6 +282,12 @@ def embed_capsule(
             f"(at least ~{_min_pixels(need):,} pixels) or a shorter message."
         )
 
+    # Reed-Solomon sits below the AEAD: it repairs before verification, so a
+    # scuffed carrier still opens while a tampered one still fails the tag.
+    if version == cap.VERSION_RS:
+        header = ecc.protect_header(header)
+        body = ecc.protect_body(body)
+
     arr = np.asarray(cover, dtype=np.uint8).copy()
     flat = arr.reshape(-1)
     total = flat.size
@@ -285,15 +295,15 @@ def embed_capsule(
 
     # Phase 1: the header, at positions only the password reveals.
     boot = _KeyStream(cap.bootstrap_key(password, width, height))
-    header_pos = _select_positions(boot, total, cap.HEADER_LEN * 8, taken)
+    header_pos = _select_positions(boot, total, len(header) * 8, taken)
     _write_bits(flat, header_pos, _to_bits(header), boot)
 
     # Phase 2: the body, under the salted key schedule.
     body_stream = _KeyStream(keys.embed)
     body_bits = _to_bits(body)
 
-    if version == cap.VERSION_STC:
-        code_width = stc_width(len(body_bits), budget - cap.HEADER_LEN * 8)
+    if version in cap.STC_VERSIONS:
+        code_width = stc_width(len(body_bits), budget - len(header) * 8)
         positions = _select_positions(
             body_stream, total, len(body_bits) * code_width, taken
         )
@@ -333,25 +343,33 @@ def extract_capsule(stego: Image.Image, password: str) -> tuple[int, bytes]:
     arr = np.asarray(stego, dtype=np.uint8)
     flat = arr.reshape(-1)
     total = flat.size
+
+    bootstrap = cap.bootstrap_key(password, width, height)
+    version, mode, salt, body_len, header_samples = _read_header(
+        flat, total, bootstrap
+    )
+
+    # Re-select with the layout we now know, so `taken` marks exactly the
+    # positions the sender used and the body selection lines up.
     taken = np.zeros(total, dtype=bool)
+    _select_positions(
+        _KeyStream(bootstrap), total, header_samples, taken
+    )
 
-    boot = _KeyStream(cap.bootstrap_key(password, width, height))
-    header_pos = _select_positions(boot, total, cap.HEADER_LEN * 8, taken)
-    header = _from_bits(_read_bits(flat, header_pos))
+    on_the_wire = (
+        ecc.protected_body_len(body_len)
+        if version == cap.VERSION_RS
+        else body_len
+    )
+    body_bits = on_the_wire * 8
 
-    version, mode, salt, body_len = cap.parse_header(header)
-    body_bits = body_len * 8
-
-    # Recomputed, not transmitted: the sender derived it from the same two
-    # numbers we have here.
-    if version == cap.VERSION_STC:
-        code_width = stc_width(
-            body_bits, capacity_bits(stego) - cap.HEADER_LEN * 8
-        )
+    # Recomputed, not transmitted: the sender derived it from the same numbers.
+    if version in cap.STC_VERSIONS:
+        code_width = stc_width(body_bits, capacity_bits(stego) - header_samples)
     else:
         code_width = 1
 
-    if body_bits * code_width > total - header_pos.size:
+    if body_bits * code_width > total - header_samples:
         raise cap.CapsuleError("Capsule failed authentication.")
 
     keys = cap.derive_keys(password, salt)
@@ -359,7 +377,7 @@ def extract_capsule(stego: Image.Image, password: str) -> tuple[int, bytes]:
     positions = _select_positions(body_stream, total, body_bits * code_width, taken)
     carried = _read_bits(flat, positions)
 
-    if version == cap.VERSION_STC:
+    if version in cap.STC_VERSIONS:
         # Extraction is a syndrome multiply: no costs, no cover, no knowledge
         # of which samples moved.
         submatrix = stc.make_submatrix(
@@ -375,7 +393,56 @@ def extract_capsule(stego: Image.Image, password: str) -> tuple[int, bytes]:
         recovered = carried
 
     body = _from_bits(recovered)
+    if version == cap.VERSION_RS:
+        try:
+            body, _ = ecc.recover_body(body, body_len)
+        except ecc.EccError as exc:
+            raise cap.CapsuleError("Capsule failed authentication.") from exc
+
     return mode, cap.open_body(body, keys, mode, salt, version)
+
+
+def _read_header(
+    flat: np.ndarray, total: int, bootstrap: bytes
+) -> tuple[int, int, bytes, int, int]:
+    """Return (version, mode, salt, body_len, header samples consumed).
+
+    Two layouts exist: 28 raw bytes (v1, v2) and 44 Reed-Solomon protected ones
+    (v3). We read enough bits for the larger, then decide -- and deliberately do
+    not commit the position mask while probing, because marking 352 positions
+    taken when an older carrier only used 224 would shift every body position
+    that follows and break extraction of every capsule ever issued under v1.
+    """
+    protected = ecc.protected_header_len(cap.HEADER_LEN)
+    probe_len = min(protected, total // 8)
+    if probe_len < cap.HEADER_LEN:
+        raise cap.CapsuleError("Capsule failed authentication.")
+
+    probe_positions = _select_positions(
+        _KeyStream(bootstrap), total, probe_len * 8, np.zeros(total, dtype=bool)
+    )
+    raw = _from_bits(_read_bits(flat, probe_positions))
+
+    # RS is systematic -- data sits in front of parity -- so an undamaged
+    # capsule of any version parses directly from the first 28 bytes.
+    try:
+        version, mode, salt, body_len = cap.parse_header(raw[: cap.HEADER_LEN])
+        if version != cap.VERSION_RS:
+            return version, mode, salt, body_len, cap.HEADER_LEN * 8
+    except cap.CapsuleError:
+        pass  # possibly a v3 header with damage in it; try repairing
+
+    if probe_len < protected:
+        raise cap.CapsuleError("Capsule failed authentication.")
+    try:
+        repaired, _ = ecc.recover_header(raw, cap.HEADER_LEN)
+    except ecc.EccError as exc:
+        raise cap.CapsuleError("Capsule failed authentication.") from exc
+
+    version, mode, salt, body_len = cap.parse_header(repaired)
+    if version != cap.VERSION_RS:
+        raise cap.CapsuleError("Capsule failed authentication.")
+    return version, mode, salt, body_len, protected * 8
 
 
 def _min_pixels(need_bits: int) -> int:
