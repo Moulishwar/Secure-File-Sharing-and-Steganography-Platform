@@ -48,8 +48,11 @@ from .crypto import InvalidTag, seal, unseal
 
 __all__ = [
     "BODY_OVERHEAD",
+    "CURRENT_VERSION",
     "CapsuleError",
     "HEADER_LEN",
+    "VERSION_LSB",
+    "VERSION_STC",
     "MODE_INLINE",
     "MODE_REFERENCE",
     "REFERENCE_PAYLOAD_LEN",
@@ -68,10 +71,18 @@ __all__ = [
 ]
 
 MAGIC = b"STGC"
-VERSION = 1
 HEADER_LEN = 28
 SALT_LEN = 16
 MAX_BODY_LEN = 0xFFFFFFFF
+
+# Body embedding method, recorded in the header so a carrier issued under an
+# older engine keeps opening after an upgrade.
+#   1  keyed LSB matching at key-selected positions
+#   2  HILL costs + syndrome trellis codes
+VERSION_LSB = 1
+VERSION_STC = 2
+CURRENT_VERSION = VERSION_STC
+_VERSIONS = {VERSION_LSB, VERSION_STC}
 
 MODE_REFERENCE = 0x01
 MODE_INLINE = 0x02
@@ -99,6 +110,7 @@ class KeySchedule:
 
     embed: bytes    # drives the pseudorandom position permutation
     payload: bytes  # AEAD key over the capsule body
+    code: bytes     # derives the STC parity submatrix, so the code is keyed too
 
 
 def new_salt() -> bytes:
@@ -151,6 +163,7 @@ def derive_keys(password: str, salt: bytes) -> KeySchedule:
     return KeySchedule(
         embed=_hkdf(root, b"stegoshare/stego-position-v1"),
         payload=_hkdf(root, b"stegoshare/stego-payload-v1"),
+        code=_hkdf(root, b"stegoshare/stego-code-v1"),
     )
 
 
@@ -165,16 +178,20 @@ def _hkdf(root: bytes, info: bytes) -> bytes:
 # --------------------------------------------------------------------------
 
 
-def make_header(mode: int, salt: bytes, body_len: int) -> bytes:
+def make_header(
+    mode: int, salt: bytes, body_len: int, version: int = CURRENT_VERSION
+) -> bytes:
     if mode not in _MODES:
         raise CapsuleError(f"Unknown capsule mode {mode:#04x}.")
+    if version not in _VERSIONS:
+        raise CapsuleError(f"Unknown capsule version {version}.")
     if len(salt) != SALT_LEN:
         raise CapsuleError(f"Salt must be {SALT_LEN} bytes.")
     if not 0 <= body_len <= MAX_BODY_LEN:
         raise CapsuleError("Body length out of range.")
     header = (
         MAGIC
-        + bytes([VERSION, mode])
+        + bytes([version, mode])
         + b"\x00\x00"
         + body_len.to_bytes(4, "big")
         + salt
@@ -183,8 +200,8 @@ def make_header(mode: int, salt: bytes, body_len: int) -> bytes:
     return header
 
 
-def parse_header(raw: bytes) -> tuple[int, bytes, int]:
-    """Return (mode, salt, body_len). Raises CapsuleError on anything unexpected.
+def parse_header(raw: bytes) -> tuple[int, int, bytes, int]:
+    """Return (version, mode, salt, body_len).
 
     Callers must treat this failing as "no payload found", never as a signal
     that the password was wrong -- the two are intentionally indistinguishable
@@ -195,14 +212,14 @@ def parse_header(raw: bytes) -> tuple[int, bytes, int]:
     if raw[:4] != MAGIC:
         raise CapsuleError("No capsule here.")
     version, mode = raw[4], raw[5]
-    if version != VERSION:
+    if version not in _VERSIONS:
         raise CapsuleError(f"Unsupported capsule version {version}.")
     if mode not in _MODES:
         raise CapsuleError(f"Unknown capsule mode {mode:#04x}.")
     if raw[6:8] != b"\x00\x00":
         raise CapsuleError("Reserved flags are not zero.")
     body_len = int.from_bytes(raw[8:12], "big")
-    return mode, raw[12:28], body_len
+    return version, mode, raw[12:28], body_len
 
 
 # --------------------------------------------------------------------------
@@ -210,18 +227,29 @@ def parse_header(raw: bytes) -> tuple[int, bytes, int]:
 # --------------------------------------------------------------------------
 
 
-def _body_aad(mode: int, salt: bytes) -> bytes:
-    """Bind the body to its own header, so a body cannot be replayed under another."""
-    return b"stegoshare/capsule-body/v1|" + bytes([VERSION, mode]) + salt
+def _body_aad(mode: int, salt: bytes, version: int) -> bytes:
+    """Bind the body to its own header, so a body cannot be replayed under another.
+
+    Version is included, so a v1 body cannot be presented under a v2 header or
+    the reverse -- a downgrade attempt fails authentication rather than
+    silently decoding under the weaker engine.
+    """
+    return b"stegoshare/capsule-body/v1|" + bytes([version, mode]) + salt
 
 
-def seal_body(payload: bytes, keys: KeySchedule, mode: int, salt: bytes) -> bytes:
-    return seal(payload, keys.payload, _body_aad(mode, salt))
+def seal_body(
+    payload: bytes, keys: KeySchedule, mode: int, salt: bytes,
+    version: int = CURRENT_VERSION,
+) -> bytes:
+    return seal(payload, keys.payload, _body_aad(mode, salt, version))
 
 
-def open_body(body: bytes, keys: KeySchedule, mode: int, salt: bytes) -> bytes:
+def open_body(
+    body: bytes, keys: KeySchedule, mode: int, salt: bytes,
+    version: int = CURRENT_VERSION,
+) -> bytes:
     try:
-        return unseal(body, keys.payload, _body_aad(mode, salt))
+        return unseal(body, keys.payload, _body_aad(mode, salt, version))
     except InvalidTag as exc:
         raise CapsuleError("Capsule failed authentication.") from exc
 

@@ -32,7 +32,7 @@ uv run flask --app stegoshare run
 Then open <http://127.0.0.1:5000>.
 
 ```bash
-uv run pytest                                # 64 tests
+uv run pytest                                # 93 tests
 ```
 
 ## How access control works
@@ -55,19 +55,48 @@ Every failure returns the same 403.
 
 ## The embedding engine
 
-Keyed LSB **matching** (±1), not replacement. Replacement drives even values up
-and odd values down, and that asymmetry is exactly what RS analysis and
-sample-pair analysis detect. Positions come from a ChaCha20 keystream keyed by
-the password, so the payload's location is secret even though this source is
-public.
+Keyed LSB **matching** (±1), never replacement. Replacement drives even values
+up and odd values down, and that asymmetry is exactly what RS and sample-pair
+analysis detect. Positions come from a ChaCha20 keystream keyed by the password,
+so the payload's location is secret even though this source is public.
 
-Measured on a 1200×900 cover: 434 of 3,240,000 samples changed (0.013%), all by
-±1, PSNR 86.9 dB.
+On top of that, the body is embedded with **HILL costs driving Syndrome Trellis
+Codes**. HILL scores where the image is busy enough to absorb a change; STC
+searches for the stego vector that satisfies the syndrome at least total cost.
+The asymmetry that makes this work: extraction is a parity-check multiply, so
+the receiver needs no costs, no cover, and no knowledge of which samples moved.
 
-Content-adaptive costs (HILL / S-UNIWARD with Syndrome Trellis Codes) are the
-planned upgrade. They are not here yet because adaptivity makes a pixel's
-eligibility depend on its value, which breaks reproducible position selection
-unless the scheme also carries wet-paper codes — that is what STC solves.
+Measured on a 1200×900 cover with a smooth sky over grainy ground:
+
+| | changes | in the smooth sky | HILL distortion |
+|---|---|---|---|
+| uniform (v1) | 12,653 | 6,217 | baseline |
+| HILL + STC (v2) | 5,347 | **62** | **1%** of v1 |
+
+For a 104-byte reference capsule: 203 of 3,240,000 samples changed (0.006%),
+all by ±1, PSNR 90.2 dB, ~0.7 s to generate.
+
+**One known limitation.** The 28-byte header must be readable before its own
+version byte is known, so it is embedded uniformly and cannot be cost-steered —
+the receiver would need cover costs it does not have. The STC-controlled body
+puts ~0 changes in smooth regions; the header scatters ~106 uniformly, which for
+a small capsule is over half the total. `tests/test_adaptive.py` pins this down.
+
+Carriers record their engine in the header, so anything issued under v1 keeps
+opening after the upgrade.
+
+## Steganalysis gate
+
+`tests/test_steganalysis.py` runs a chi-square attack against our own output and
+fails the build if it fires. It is paired with a positive control — deliberate
+LSB replacement, which must be detected — because a gate that never fires
+measures nothing.
+
+**Read the result narrowly.** Chi-square is an old, weak detector that only
+fires at high replacement rates. Passing is a floor, not a guarantee. A modern
+CNN steganalyser (SRNet and successors) is far stronger and is not implemented
+here. Any claim about this engine should name the detector and the payload rate;
+never state undetectability as an absolute.
 
 ## What this does and does not protect
 
@@ -91,7 +120,9 @@ stegoshare/
   db.py          connection per request
   crypto.py      AES-256-GCM, envelope wrapping, AAD binding
   capsule.py     capsule format + Argon2id/HKDF key schedule
-  stego.py       keyed LSB-matching engine
+  stego.py       embedding engine: position selection + version dispatch
+  costs.py       HILL cost model -- where the image can absorb a change
+  stc.py         syndrome trellis codes
   images.py      cover intake: content sniffing, bomb guard, format policy
   storage.py     object storage abstraction (local now, S3/MinIO later)
   security.py    login_required, the authorization gate, audit
@@ -99,7 +130,7 @@ stegoshare/
   shares.py      create, request, approve, open
   pipeline.py    orchestration + mandatory round-trip verification
 schema.sql
-tests/           64 tests
+tests/           93 tests, including a steganalysis gate
 ```
 
 ## Hosting

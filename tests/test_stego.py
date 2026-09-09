@@ -66,8 +66,9 @@ def test_survives_a_real_png_file(cover):
 
 
 def test_larger_inline_payload_round_trips(cover):
+    """STC needs two carrier samples per payload bit, hence the larger cover."""
     payload = bytes(range(256)) * 40  # 10 KB
-    image = stego.embed_capsule(cover(1024, 1024), MODE_INLINE, payload, PASSWORD)
+    image = stego.embed_capsule(cover(1280, 1024), MODE_INLINE, payload, PASSWORD)
     _, recovered = stego.extract_capsule(image, PASSWORD)
     assert recovered == payload
 
