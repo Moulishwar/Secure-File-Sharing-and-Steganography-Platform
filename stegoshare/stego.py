@@ -15,13 +15,22 @@ What this does instead:
     making a pixel's eligibility depend on its value -- which is what lets
     extraction reproduce the position set exactly.
 
-Deliberately NOT here (yet): content-adaptive costs. Preferring textured
-regions makes eligibility value-dependent, which breaks reproducible position
-selection unless the scheme also carries wet-paper codes. That is what STC
-solves, and it is the M5 upgrade -- see plan section 04. At capsule-sized
-payloads (104 bytes in a 12 MP cover) the detection question is close to moot
-anyway; adaptivity matters when the payload is large, which in this design it
-usually is not.
+Two body engines exist, selected by the capsule header's version byte:
+
+  v1  keyed LSB matching at key-selected positions. Uniform: every position
+      costs the same, so changes land wherever the keystream points -- including
+      in smooth regions that have no noise to hide them.
+
+  v2  HILL costs + syndrome trellis codes (the default). The key still selects
+      *which* positions are candidates; STC then decides which of them to
+      actually move, steering changes into texture. Costs the sender two carrier
+      samples per payload bit and buys a large drop in embedding distortion.
+
+The header itself is always LSB-matched at bootstrap positions, because it has
+to be readable before its own version byte is known. It is 224 bits, so how it
+is embedded barely matters.
+
+Old carriers keep opening: extraction dispatches on the recorded version.
 """
 
 from __future__ import annotations
@@ -31,6 +40,8 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
 from PIL import Image
 
 from . import capsule as cap
+from . import stc
+from .costs import hill_costs
 
 __all__ = [
     "StegoError",
@@ -45,6 +56,38 @@ __all__ = [
 # literature is ~5% of nominal capacity; we cap lower because inline mode is
 # the exception and reference mode uses a rounding error of this budget.
 SAFE_PAYLOAD_FRACTION = 0.05
+
+# Carrier samples per payload bit under STC -- the trellis submatrix width.
+#
+# This is the knob that decides whether cost steering does anything. At width 2
+# the code has two candidates per payload bit and can barely avoid an expensive
+# sample; at width 32 it has thirty-two and will route changes into texture.
+# Distortion falls roughly with width, and time rises linearly with it.
+#
+# Width is derived from payload size against the capacity budget, so a small
+# capsule -- the common case, 104 bytes -- gets the widest, cheapest-per-bit
+# code, while a large inline payload falls back toward 2 because the rate
+# leaves no room. Both sides compute it identically from the header, so it
+# needs no bytes on the wire.
+MIN_STC_WIDTH = 2
+MAX_STC_WIDTH = 32
+
+# Ceiling on total trellis columns, so a large payload cannot make embedding
+# take minutes. Time is roughly (columns x 2**height) elementary operations.
+MAX_STC_COLUMNS = 400_000
+
+
+def stc_width(body_bits: int, budget: int) -> int:
+    """Submatrix width for a payload of `body_bits` against a capacity budget.
+
+    A pure function of values both sides already know, so the sender and
+    receiver always agree without transmitting it.
+    """
+    if body_bits <= 0:
+        return MIN_STC_WIDTH
+    by_capacity = budget // body_bits
+    by_time = MAX_STC_COLUMNS // body_bits
+    return max(MIN_STC_WIDTH, min(MAX_STC_WIDTH, by_capacity, by_time))
 
 
 class StegoError(Exception):
@@ -145,8 +188,20 @@ def capacity_bits(image: Image.Image) -> int:
 
 
 def required_bits(payload_len: int) -> int:
-    """Total bits a capsule needs: header + sealed body."""
+    """Size of the capsule itself, in bits. Independent of the engine."""
     return (cap.HEADER_LEN + cap.BODY_OVERHEAD + payload_len) * 8
+
+
+def carrier_samples(payload_len: int, version: int = cap.CURRENT_VERSION) -> int:
+    """Minimum cover samples the engine needs -- what capacity is checked against.
+
+    Under STC the body needs at least MIN_STC_WIDTH samples per bit; the actual
+    width is chosen larger when the budget allows. The header is always
+    LSB-matched and so needs one sample per bit.
+    """
+    body_bits = (cap.BODY_OVERHEAD + payload_len) * 8
+    width = MIN_STC_WIDTH if version == cap.VERSION_STC else 1
+    return cap.HEADER_LEN * 8 + body_bits * width
 
 
 # --------------------------------------------------------------------------
@@ -194,12 +249,16 @@ def _read_bits(flat: np.ndarray, positions: np.ndarray) -> np.ndarray:
 
 
 def embed_capsule(
-    cover: Image.Image, mode: int, payload: bytes, password: str
+    cover: Image.Image,
+    mode: int,
+    payload: bytes,
+    password: str,
+    version: int = cap.CURRENT_VERSION,
 ) -> Image.Image:
     """Embed a capsule into a cover image and return the stego image.
 
     The caller is responsible for verifying the round trip before handing the
-    result to anyone -- see verify_roundtrip in stegoshare.pipeline.
+    result to anyone -- see pipeline._verify.
     """
     if cover.mode != "RGB":
         cover = cover.convert("RGB")
@@ -207,15 +266,15 @@ def embed_capsule(
 
     salt = cap.new_salt()
     keys = cap.derive_keys(password, salt)
-    body = cap.seal_body(payload, keys, mode, salt)
-    header = cap.make_header(mode, salt, len(body))
+    body = cap.seal_body(payload, keys, mode, salt, version)
+    header = cap.make_header(mode, salt, len(body), version)
 
-    need = (len(header) + len(body)) * 8
+    need = carrier_samples(len(payload), version)
     budget = capacity_bits(cover)
     if need > budget:
         raise CapacityError(
-            f"This payload needs {need // 8:,} bytes of capsule but the cover "
-            f"safely holds {budget // 8:,}. Use a larger image "
+            f"This payload needs {need:,} carrier samples but the cover safely "
+            f"holds {budget:,}. Use a larger image "
             f"(at least ~{_min_pixels(need):,} pixels) or a shorter message."
         )
 
@@ -231,8 +290,31 @@ def embed_capsule(
 
     # Phase 2: the body, under the salted key schedule.
     body_stream = _KeyStream(keys.embed)
-    body_pos = _select_positions(body_stream, total, len(body) * 8, taken)
-    _write_bits(flat, body_pos, _to_bits(body), body_stream)
+    body_bits = _to_bits(body)
+
+    if version == cap.VERSION_STC:
+        code_width = stc_width(len(body_bits), budget - cap.HEADER_LEN * 8)
+        positions = _select_positions(
+            body_stream, total, len(body_bits) * code_width, taken
+        )
+        # Costs come from the cover, and only the sender ever needs them.
+        costs = hill_costs(arr).reshape(-1)[positions]
+        submatrix = stc.make_submatrix(
+            _KeyStream(keys.code).take(code_width * 16),
+            code_width,
+            stc.DEFAULT_HEIGHT,
+        )
+        target = stc.embed(
+            (flat[positions] & 1).astype(np.uint8),
+            costs,
+            body_bits,
+            submatrix,
+            stc.DEFAULT_HEIGHT,
+        )
+        _write_bits(flat, positions, target, body_stream)
+    else:
+        positions = _select_positions(body_stream, total, len(body_bits), taken)
+        _write_bits(flat, positions, body_bits, body_stream)
 
     return Image.fromarray(arr.reshape(height, width, 3), mode="RGB")
 
@@ -257,16 +339,43 @@ def extract_capsule(stego: Image.Image, password: str) -> tuple[int, bytes]:
     header_pos = _select_positions(boot, total, cap.HEADER_LEN * 8, taken)
     header = _from_bits(_read_bits(flat, header_pos))
 
-    mode, salt, body_len = cap.parse_header(header)
-    if body_len * 8 > total - header_pos.size:
+    version, mode, salt, body_len = cap.parse_header(header)
+    body_bits = body_len * 8
+
+    # Recomputed, not transmitted: the sender derived it from the same two
+    # numbers we have here.
+    if version == cap.VERSION_STC:
+        code_width = stc_width(
+            body_bits, capacity_bits(stego) - cap.HEADER_LEN * 8
+        )
+    else:
+        code_width = 1
+
+    if body_bits * code_width > total - header_pos.size:
         raise cap.CapsuleError("Capsule failed authentication.")
 
     keys = cap.derive_keys(password, salt)
     body_stream = _KeyStream(keys.embed)
-    body_pos = _select_positions(body_stream, total, body_len * 8, taken)
-    body = _from_bits(_read_bits(flat, body_pos))
+    positions = _select_positions(body_stream, total, body_bits * code_width, taken)
+    carried = _read_bits(flat, positions)
 
-    return mode, cap.open_body(body, keys, mode, salt)
+    if version == cap.VERSION_STC:
+        # Extraction is a syndrome multiply: no costs, no cover, no knowledge
+        # of which samples moved.
+        submatrix = stc.make_submatrix(
+            _KeyStream(keys.code).take(code_width * 16),
+            code_width,
+            stc.DEFAULT_HEIGHT,
+        )
+        try:
+            recovered = stc.extract(carried, submatrix, body_bits)
+        except stc.StcError as exc:
+            raise cap.CapsuleError("Capsule failed authentication.") from exc
+    else:
+        recovered = carried
+
+    body = _from_bits(recovered)
+    return mode, cap.open_body(body, keys, mode, salt, version)
 
 
 def _min_pixels(need_bits: int) -> int:
