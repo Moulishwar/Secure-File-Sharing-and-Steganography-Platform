@@ -13,6 +13,7 @@ dependencies = [
     "pillow>=12.0",            # cover image decode/encode
     "numpy>=2.3",              # embedding engine
     "filetype>=1.2",           # content-based type sniffing, no libmagic dependency
+    "reedsolo>=1.7",         # Reed-Solomon corruption tolerance for the capsule
 ]
 
 [project.scripts]

@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 from stegoshare import capsule as cap
-from stegoshare import stc, stego
+from stegoshare import ecc, stc, stego
 from stegoshare.costs import hill_costs
 
 PASSWORD = "correct horse battery staple"
@@ -187,10 +187,16 @@ def test_the_header_is_the_only_uniformly_embedded_part(split_cover):
     changed = _changes(cover, image).reshape(-1)
     total = changed.size
 
-    # Recover the header's positions exactly as extraction does.
+    # Recover the header's positions exactly as extraction does. Under v3 the
+    # header carries its own Reed-Solomon parity, so it occupies 44 bytes.
+    header_len = (
+        ecc.protected_header_len(cap.HEADER_LEN)
+        if cap.CURRENT_VERSION == cap.VERSION_RS
+        else cap.HEADER_LEN
+    )
     boot = stego._KeyStream(cap.bootstrap_key(PASSWORD, *cover.size))
     header_positions = stego._select_positions(
-        boot, total, cap.HEADER_LEN * 8, np.zeros(total, dtype=bool)
+        boot, total, header_len * 8, np.zeros(total, dtype=bool)
     )
     is_header = np.zeros(total, dtype=bool)
     is_header[header_positions] = True
@@ -275,7 +281,8 @@ def test_v1_carriers_still_open_after_v2_became_the_default(cover):
     assert recovered == payload
 
 
-def test_default_engine_is_stc(cover):
+def test_default_engine_is_cost_steered(cover):
+    """Whatever the current default is, its body must be STC-embedded."""
     payload = b"which engine ran?"
     image = stego.embed_capsule(cover(512, 512), cap.MODE_INLINE, payload, PASSWORD)
 
@@ -287,7 +294,8 @@ def test_default_engine_is_stc(cover):
     header = stego._from_bits((arr[positions] & 1).astype(np.uint8))
 
     version, _, _, _ = cap.parse_header(header)
-    assert version == cap.VERSION_STC
+    assert version == cap.CURRENT_VERSION
+    assert version in cap.STC_VERSIONS
 
 
 def test_version_is_bound_into_the_body_authentication():

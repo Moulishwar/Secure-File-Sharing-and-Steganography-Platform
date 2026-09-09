@@ -51,7 +51,9 @@ __all__ = [
     "CURRENT_VERSION",
     "CapsuleError",
     "HEADER_LEN",
+    "STC_VERSIONS",
     "VERSION_LSB",
+    "VERSION_RS",
     "VERSION_STC",
     "MODE_INLINE",
     "MODE_REFERENCE",
@@ -79,10 +81,15 @@ MAX_BODY_LEN = 0xFFFFFFFF
 # older engine keeps opening after an upgrade.
 #   1  keyed LSB matching at key-selected positions
 #   2  HILL costs + syndrome trellis codes
+#   3  as 2, plus Reed-Solomon over both header and body
 VERSION_LSB = 1
 VERSION_STC = 2
-CURRENT_VERSION = VERSION_STC
-_VERSIONS = {VERSION_LSB, VERSION_STC}
+VERSION_RS = 3
+CURRENT_VERSION = VERSION_RS
+_VERSIONS = {VERSION_LSB, VERSION_STC, VERSION_RS}
+
+# Versions whose body is embedded with syndrome trellis codes.
+STC_VERSIONS = {VERSION_STC, VERSION_RS}
 
 MODE_REFERENCE = 0x01
 MODE_INLINE = 0x02
