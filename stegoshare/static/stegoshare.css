@@ -1,0 +1,119 @@
+:root {
+  --ground: #f5f6f8;
+  --surface: #fff;
+  --ink: #16182a;
+  --ink-2: #4a4d63;
+  --ink-3: #7b7e93;
+  --rule: #d6d8e2;
+  --accent: #4b3fa7;
+  --warn-bg: #f8f1e4;
+  --warn: #8a5a10;
+  --err-bg: #faecef;
+  --err: #a3243f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0e0f1a; --surface: #161826; --ink: #e7e8f1; --ink-2: #aeb1c4;
+    --ink-3: #7c7f96; --rule: #2c2f45; --accent: #a79cf5;
+    --warn-bg: #2a2113; --warn: #e0a94f; --err-bg: #2b1520; --err: #ff7590;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.bar {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  padding: 14px 24px; background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+}
+.brand { font-weight: 700; letter-spacing: -0.02em; text-decoration: none; color: var(--ink); }
+.bar nav { display: flex; align-items: center; gap: 18px; margin-left: auto; flex-wrap: wrap; }
+.bar nav a { color: var(--ink-2); text-decoration: none; font-size: 14px; }
+.bar nav a:hover { color: var(--accent); }
+.inline { display: inline; margin: 0; }
+.linkish {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--ink-2); font: inherit; font-size: 14px;
+}
+.linkish:hover { color: var(--accent); }
+
+main { max-width: 780px; margin: 0 auto; padding: 32px 24px 60px; }
+
+h1 { font-size: 28px; letter-spacing: -0.02em; margin: 0 0 8px; }
+h2 { font-size: 19px; margin: 32px 0 10px; }
+p  { margin: 0 0 14px; }
+.sub { color: var(--ink-2); margin-bottom: 26px; }
+
+form { margin: 0 0 22px; }
+fieldset { border: 1px solid var(--rule); border-radius: 4px; padding: 18px 20px; margin: 0 0 18px; }
+legend { font-weight: 600; font-size: 14px; padding: 0 6px; }
+label { display: block; font-size: 14px; font-weight: 500; margin: 14px 0 5px; }
+label.opt { font-weight: 400; margin: 6px 0; }
+
+input[type=text], input[type=email], input[type=password], input[type=file],
+input[type=number], textarea, select {
+  width: 100%; padding: 9px 11px; font: inherit;
+  border: 1px solid var(--rule); border-radius: 3px;
+  background: var(--surface); color: var(--ink);
+}
+textarea { min-height: 110px; resize: vertical; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+
+button.primary {
+  background: var(--accent); color: #fff; border: 0; border-radius: 3px;
+  padding: 10px 20px; font: inherit; font-weight: 600; cursor: pointer;
+}
+button.small {
+  background: var(--surface); color: var(--ink); border: 1px solid var(--rule);
+  border-radius: 3px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+button.primary:hover, button.small:hover { filter: brightness(1.08); }
+
+.hint { font-size: 13px; color: var(--ink-3); margin: 5px 0 0; }
+
+.note {
+  background: var(--warn-bg); color: var(--ink); border: 1px solid var(--warn);
+  border-radius: 3px; padding: 13px 16px; font-size: 14px; margin: 0 0 18px;
+}
+.note b { color: var(--warn); }
+
+.flash {
+  background: var(--err-bg); border: 1px solid var(--err); color: var(--ink);
+  border-radius: 3px; padding: 12px 18px; margin: 0 0 22px; list-style: none;
+}
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); }
+.tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 4px; margin-bottom: 20px; }
+th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-3); padding: 10px 14px; border-bottom: 1px solid var(--rule);
+}
+td { padding: 11px 14px; border-bottom: 1px solid var(--rule); color: var(--ink-2); }
+td:first-child { color: var(--ink); }
+tr:last-child td { border-bottom: 0; }
+
+.pill {
+  display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+  border-radius: 10px; border: 1px solid currentColor;
+}
+.pill.ok   { color: #1a7a5e; }
+.pill.wait { color: var(--ink-3); }
+@media (prefers-color-scheme: dark) { .pill.ok { color: #5fc9a8; } }
+
+.empty { color: var(--ink-3); font-size: 14px; }
+
+.foot {
+  border-top: 1px solid var(--rule); background: var(--surface);
+  padding: 18px 24px; font-size: 13px; color: var(--ink-2);
+}
+.foot p { max-width: 780px; margin: 0 auto; }

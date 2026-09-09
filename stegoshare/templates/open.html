@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Open a carrier · StegoShare{% endblock %}
+{% block content %}
+<h1>Open a carrier image</h1>
+<p class="sub">Upload the PNG you were sent and enter the share password.</p>
+
+<form method="post" action="{{ url_for('shares.open_submit') }}"
+      enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="carrier">Carrier image</label>
+  <input id="carrier" name="carrier" type="file" accept="image/png" required>
+  <label for="password">Share password</label>
+  <input id="password" name="password" type="password" required>
+  <p><button class="primary" type="submit">Extract</button></p>
+</form>
+
+<div class="note">
+  <b>If this fails, the message is always the same.</b>
+  We do not tell you whether the password was wrong or whether the image
+  carries nothing — those two cases are deliberately indistinguishable, which is
+  what makes an ordinary photo and a carrier impossible to tell apart.
+</div>
+{% endblock %}

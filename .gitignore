@@ -33,3 +33,8 @@ htmlcov/
 .idea/
 .DS_Store
 *.swp
+
+# Documents
+Docs/
+docs/
+

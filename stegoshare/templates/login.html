@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Log in · StegoShare{% endblock %}
+{% block content %}
+<h1>Log in</h1>
+<form method="post" action="{{ url_for('auth.login_submit') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" autocomplete="username"
+         value="{{ email or '' }}" required>
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password"
+         autocomplete="current-password" required>
+  <p><button class="primary" type="submit">Log in</button></p>
+</form>
+<p class="hint">No account? <a href="{{ url_for('auth.signup') }}">Sign up</a>.</p>
+{% endblock %}

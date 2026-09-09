@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}StegoShare{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='stegoshare.css') }}">
+</head>
+<body>
+<header class="bar">
+  <a class="brand" href="{{ url_for('auth.index') }}">StegoShare</a>
+  {% if session.get('uid') %}
+    <nav>
+      <a href="{{ url_for('shares.dashboard') }}">Shares</a>
+      <a href="{{ url_for('shares.new_share') }}">New share</a>
+      <a href="{{ url_for('shares.open_form') }}">Open a carrier</a>
+      <a href="{{ url_for('shares.requests_inbox') }}">Requests</a>
+      <form method="post" action="{{ url_for('auth.logout') }}" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="linkish">Log out</button>
+      </form>
+    </nav>
+  {% endif %}
+</header>
+
+<main>
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <ul class="flash">{% for m in messages %}<li>{{ m }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="foot">
+  <p><strong>What this protects.</strong> Your content is encrypted with AES-256-GCM.
+  Hiding it in an image conceals that there is anything to find — it is not what
+  keeps it secret. In reference mode the server holds the keys, so the operator
+  of this instance can decrypt your files.</p>
+</footer>
+</body>
+</html>

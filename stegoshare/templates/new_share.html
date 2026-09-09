@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}New share · StegoShare{% endblock %}
+{% block content %}
+<h1>New share</h1>
+<p class="sub">Pick what to hide, pick a cover image, and choose whether the
+carrier points at the server or holds the content itself.</p>
+
+<form method="post" action="{{ url_for('shares.create_share') }}"
+      enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <fieldset>
+    <legend>What to hide</legend>
+    <label class="opt">
+      <input type="radio" name="kind" value="text" checked> A text message
+    </label>
+    <label for="title">Title</label>
+    <input id="title" name="title" type="text" placeholder="Message">
+    <label for="message">Message</label>
+    <textarea id="message" name="message"
+              placeholder="Anything you type here is encrypted before it touches the image."></textarea>
+
+    <label class="opt" style="margin-top:18px">
+      <input type="radio" name="kind" value="file"> A file
+    </label>
+    <input name="payload" type="file">
+  </fieldset>
+
+  <fieldset>
+    <legend>Carrier mode</legend>
+    <label class="opt">
+      <input type="radio" name="mode" value="reference" checked>
+      <strong>Reference</strong> — the image carries a 104-byte key; the
+      encrypted file stays on the server. Any file size. Recipients need an
+      approved grant.
+    </label>
+    <label class="opt">
+      <input type="radio" name="mode" value="inline">
+      <strong>Inline</strong> — the image carries the encrypted content itself.
+      Works with no server at all, but only fits roughly 45–220 KB in a phone
+      photo. Anyone with the image and the password can open it.
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Cover image</legend>
+    <div class="note">
+      <b>Use an original photo you have not published anywhere.</b>
+      If someone can obtain the same image without the payload, they can compare
+      the two files and the hiding is defeated instantly — no analysis needed.
+      Delete your copy of the cover after you download the carrier.
+    </div>
+    <input name="cover" type="file" accept="image/*" required>
+    <p class="hint">PNG, JPEG, WebP or BMP in. You always get a PNG back —
+    any app that recompresses the image destroys the payload.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Password</legend>
+    <label for="password">Share password</label>
+    <input id="password" name="password" type="password" minlength="8" required>
+    <p class="hint">Recipients need this to extract the carrier. Send it through
+    a different channel than the image.</p>
+  </fieldset>
+
+  {% if people %}
+  <fieldset>
+    <legend>Recipients — reference mode only</legend>
+    {% for p in people %}
+      <label class="opt">
+        <input type="checkbox" name="recipients" value="{{ p.id }}">
+        {{ p.display_name }} <span class="hint">({{ p.email }})</span>
+      </label>
+    {% endfor %}
+    <label for="approvals">Approvals required before a recipient can open it</label>
+    <input id="approvals" name="approvals" type="number" min="0" value="1">
+    <p class="hint">Until that many approvals land, the recipient holds no key
+    material at all — not a permission flag, no key.</p>
+  </fieldset>
+  {% endif %}
+
+  <p><button class="primary" type="submit">Create carrier image</button></p>
+</form>
+{% endblock %}

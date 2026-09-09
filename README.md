@@ -1,139 +1,115 @@
-## Secure File Sharing and Steganography Platform
+# StegoShare
 
-A Python/Flask web application for **securely sharing files and text messages** by encrypting them and hiding them inside images using **steganography**.
+Secure file and text sharing. Content is encrypted with AES-256-GCM, and a
+carrier image is generated that reveals nothing about it.
 
----
+The design principle: **the carrier is not the payload.** A photo can only hide
+a couple of hundred kilobytes before statistical detectors notice, so the image
+carries a 104-byte capsule — a locator and a capability token — while the
+ciphertext lives in object storage. In a 12 MP cover that is under 0.003% of
+capacity, which is why file size stops being a constraint.
 
-## Features
+## Two modes
 
-- **User accounts**
-  - Signup, login, logout, and session management
-  - User data stored in SQLite
+| Mode | The image carries | Size limit | Opening it needs |
+|---|---|---|---|
+| **Reference** | 104-byte locator + capability | none | image + password + an approved grant |
+| **Inline** | the encrypted content itself | ~45–220 KB in a phone photo | image + password only, no server |
 
-- **Secure file sharing**
-  - Upload files and share them with selected users
-  - Symmetric encryption using **Blowfish** and **ChaCha20**
-  - Per-recipient keys stored in the database
+Reference mode is the platform. Inline mode is a self-contained covert channel.
+Both use the same embedding engine.
 
-- **Image steganography (files in images)**
-  - Hide an uploaded file inside a cover image using **LSB (least significant bit)** manipulation
-  - Generate a stego-image that visually looks like the original cover image
-  - Decode and recover the hidden data for authorized users
-
-- **Text steganography (messages in images)**
-  - Hide arbitrary text messages inside images via LSB-based encoding
-  - Support for extracting and displaying the hidden text
-
-- **Access control and approvals**
-  - Users can request access to shared content
-  - Owners receive notifications and can approve/deny
-  - Only approved users can decrypt and view hidden content
-
----
-
-## Tech Stack
-
-- **Backend**: Python, Flask
-- **Database**: SQLite (`store.db`)
-- **Crypto**:
-  - `blowfish` for block cipher file encryption
-  - `cryptography` (ChaCha20) for additional file encryption
-- **Image processing / steganography**:
-  - OpenCV (`cv2`)
-  - Pillow (`PIL`)
-  - NumPy
-- **Frontend**:
-  - HTML templates (Jinja2)
-  - CSS/JS (static assets in `static/`)
-
----
-
-## Project Structure (simplified)
-
-- `main.py` – Flask app entry point, routes, encryption and steganography logic
-- `image.py` – image-related helper logic (if used)
-- `textstenography.py` – text steganography helpers (encode/decode text in images)
-- `templates/` – HTML templates (login, signup, dashboard, upload, view shared items, etc.)
-- `static/`
-  - `css/` – stylesheets
-  - `js/` – client-side scripts
-- `upload/` – uploaded and intermediate files (cover and secret images, text images, etc.)
-- `static/col/` – images containing hidden data (stego-images)
-- `static/decrypt/` – decrypted output files/images
-- `store.db` – SQLite database
-
----
-
-## Database Setup
-
-The application uses a SQLite database file `store.db` with tables such as:
-
-- `data` – users (user id, name, email, password)
-- `sharing` – shared file metadata
-- `sharingtable` – per-user file sharing entries and keys
-- `requesttable` – access requests and statuses
-- `textstenography` – text steganography entries
-
-In many setups this DB is created and evolved via `sqlite3` and the commented `CREATE TABLE` statements in `main.py` and related files. For a fresh environment:
-
-1. Ensure `store.db` exists in the project root.
-2. Use `sqlite3 store.db` (or a GUI) to create the tables according to the schema used in `main.py` (or reuse an existing `store.db` from a working environment).
-
----
-
-## Running the Application
-
-From the project root (with the virtual environment active):
+## Quick start
 
 ```bash
-python main.py
+uv sync
+uv run stegoshare-init                       # writes a gitignored .env
+set -a && . ./.env && set +a
+uv run flask --app stegoshare init-db
+uv run flask --app stegoshare run
 ```
 
-By default, Flask will start in debug mode on:
+Then open <http://127.0.0.1:5000>.
 
-```text
-http://127.0.0.1:5000/
+```bash
+uv run pytest                                # 64 tests
 ```
 
-Open this URL in your browser.
+## How access control works
 
----
+`grants.wrapped_dek` is **NULL until the approval threshold is met**. An
+unapproved recipient does not hold a permission flag that a route has to
+remember to check — they hold no key material at all. Authorization and key
+retrieval are the same query (`security.open_share`), so there is no code path
+that returns a key without having proved the grant.
 
-## Basic Usage
+Opening a reference share requires all four of:
 
-1. **Register and login**
-   - Go to the homepage and create a new account.
-   - Log in with your credentials.
+1. a grant row for this (share, recipient),
+2. that grant's `wrapped_dek` being non-NULL,
+3. the capability token carried inside the image matching the stored digest,
+4. the wrapped key unwrapping under associated data naming this exact share and
+   this exact user.
 
-2. **Hide and share a file in an image**
-   - Navigate to the file/image steganography page.
-   - Upload a **cover image** and a **file** to hide.
-   - Choose which users to share with.
-   - The app creates a stego-image and records sharing metadata.
+Every failure returns the same 403.
 
-3. **Request access & approvals**
-   - Recipients can view shared items and request access.
-   - Owners see notifications and can approve requests.
-   - Approved users receive the necessary key to decrypt.
+## The embedding engine
 
-4. **Decrypt and view**
-   - Once approved, the recipient can decrypt the file.
-   - Hidden content is recovered into `static/decrypt/` and shown in the UI.
+Keyed LSB **matching** (±1), not replacement. Replacement drives even values up
+and odd values down, and that asymmetry is exactly what RS analysis and
+sample-pair analysis detect. Positions come from a ChaCha20 keystream keyed by
+the password, so the payload's location is secret even though this source is
+public.
 
-5. **Text steganography**
-   - Navigate to the text steganography page.
-   - Upload a cover image and enter the message text.
-   - The app encodes the text inside the image and allows later decoding/display.
+Measured on a 1200×900 cover: 434 of 3,240,000 samples changed (0.013%), all by
+±1, PSNR 86.9 dB.
 
----
+Content-adaptive costs (HILL / S-UNIWARD with Syndrome Trellis Codes) are the
+planned upgrade. They are not here yet because adaptivity makes a pixel's
+eligibility depend on its value, which breaks reproducible position selection
+unless the scheme also carries wet-paper codes — that is what STC solves.
 
-## Security Notes
+## What this does and does not protect
 
-- This project is primarily a **demonstration / educational** implementation of encryption and steganography.
-- Keys are generated and stored in SQLite; hard-coded secrets (e.g., Flask `secret_key`) and debug mode are **not production-safe**.
-- For real-world deployments, you should:
-  - Use strong, environment-based secrets and configuration.
-  - Enforce HTTPS, strong authentication, and better key management.
-  - Audit and harden the crypto and steganography code paths.
+- **Encryption** protects the content. **Hiding** conceals that there is
+  anything to protect. They are different properties and the hiding is the
+  weaker one.
+- **The operator can decrypt reference-mode files.** The server holds the
+  key-encryption key. If the promise needs to be "only you can read this", that
+  is client-side end-to-end encryption and a different architecture.
+- **Any app that recompresses the image destroys the payload.** Send the PNG as
+  a file. WhatsApp, Instagram and most email gateways will break it.
+- **Never reuse a cover image that exists anywhere else.** If someone can obtain
+  the original, they diff the two files and the hiding is over — no analysis
+  needed.
 
----
+## Layout
+
+```
+stegoshare/
+  config.py      environment-driven config; refuses to start without secrets
+  db.py          connection per request
+  crypto.py      AES-256-GCM, envelope wrapping, AAD binding
+  capsule.py     capsule format + Argon2id/HKDF key schedule
+  stego.py       keyed LSB-matching engine
+  images.py      cover intake: content sniffing, bomb guard, format policy
+  storage.py     object storage abstraction (local now, S3/MinIO later)
+  security.py    login_required, the authorization gate, audit
+  auth.py        signup / login / logout
+  shares.py      create, request, approve, open
+  pipeline.py    orchestration + mandatory round-trip verification
+schema.sql
+tests/           64 tests
+```
+
+## Hosting
+
+Local development is the current target and every layer is built for hosting.
+What changes when you deploy:
+
+- `STEGOSHARE_ENV=production` forces secure session cookies and adds HSTS.
+- Swap `STEGOSHARE_STORAGE` for an S3/MinIO backend implementing the three
+  methods in `storage.Storage`.
+- Point `STEGOSHARE_RATELIMIT_URI` at Redis; in-memory limits are per-worker.
+- Run under gunicorn behind a reverse proxy. Never `flask run`.
+- Move from SQLite to Postgres once there is more than one writer.

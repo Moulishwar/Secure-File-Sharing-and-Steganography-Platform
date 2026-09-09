@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Shares · StegoShare{% endblock %}
+{% block content %}
+<h1>Your shares</h1>
+{% if pending %}
+  <p class="sub"><a href="{{ url_for('shares.requests_inbox') }}">{{ pending }}
+  access request{{ '' if pending == 1 else 's' }} waiting on you</a>.</p>
+{% endif %}
+
+<h2>Created by you</h2>
+{% if mine %}
+<div class="tw">
+  <table>
+    <thead><tr><th>Name</th><th>Mode</th><th>Kind</th><th>Size</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for s in mine %}
+      <tr>
+        <td>{{ s.display_name }}</td>
+        <td>{{ s.mode }}</td>
+        <td>{{ s.kind }}</td>
+        <td>{{ '{:,}'.format(s.byte_size) }} B</td>
+        <td>{{ s.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<p class="empty">Nothing yet. <a href="{{ url_for('shares.new_share') }}">Create a share</a>.</p>
+{% endif %}
+
+<h2>Shared with you</h2>
+{% if shared %}
+<div class="tw">
+  <table>
+    <thead>
+      <tr><th>Name</th><th>From</th><th>Status</th><th>Approvals</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in shared %}
+      <tr>
+        <td>{{ s.display_name }}</td>
+        <td>{{ s.owner_name }}</td>
+        <td>
+          {% if s.unlocked %}<span class="pill ok">Unlocked</span>
+          {% elif s.requested %}<span class="pill wait">Awaiting approval</span>
+          {% else %}<span class="pill wait">Locked</span>{% endif %}
+        </td>
+        <td>{{ s.approvals }} / {{ s.approvals_required }}</td>
+        <td>
+          {% if s.unlocked %}
+            <a href="{{ url_for('shares.open_form') }}">Open with carrier</a>
+          {% elif not s.requested %}
+            <form method="post" class="inline"
+                  action="{{ url_for('shares.request_access', public_id=s.public_id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="small" type="submit">Request access</button>
+            </form>
+          {% else %}
+            <span class="empty">Requested</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="hint">Unlocked means the approval threshold was met and a key was
+wrapped for you. You still need the carrier image and the password to open it.</p>
+{% else %}
+<p class="empty">Nobody has shared anything with you yet.</p>
+{% endif %}
+{% endblock %}
