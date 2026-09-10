@@ -14,6 +14,7 @@ dependencies = [
     "numpy>=2.3",              # embedding engine
     "filetype>=1.2",           # content-based type sniffing, no libmagic dependency
     "reedsolo>=1.7",         # Reed-Solomon corruption tolerance for the capsule
+    "python-dotenv>=1.2.3",  # flask run loads .env by itself
 ]
 
 [project.scripts]

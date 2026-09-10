@@ -130,8 +130,13 @@ def create_share():
             flash("Enter a message to hide.")
             return redirect(url_for("shares.new_share"))
         content = message.encode("utf-8")
-        display_name = (request.form.get("title") or "Message").strip()[:120]
-        content_type = "text/plain; charset=utf-8"
+        title = (request.form.get("title") or "Message").strip()[:116]
+        # A title like "Imp" would otherwise download as an extensionless file
+        # the browser and desktop have no idea how to open.
+        display_name = title if title.lower().endswith(".txt") else f"{title}.txt"
+        # Bare type only: Werkzeug appends the charset for text/*, and storing
+        # it here too produces "text/plain; charset=utf-8; charset=utf-8".
+        content_type = "text/plain"
     else:
         upload = request.files.get("payload")
         if upload is None or not upload.filename:

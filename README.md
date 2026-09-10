@@ -5,7 +5,7 @@ carrier image is generated that reveals nothing about it.
 
 The design principle: **the carrier is not the payload.** A photo can only hide
 a couple of hundred kilobytes before statistical detectors notice, so the image
-carries a 152-byte capsule — a locator and a capability token — while the
+carries a 152-byte capsule, a locator and a capability token, while the
 ciphertext lives in object storage. In a 12 MP cover that is under 0.005% of
 capacity, which is why file size stops being a constraint.
 
@@ -24,22 +24,25 @@ Both use the same embedding engine.
 ```bash
 uv sync
 uv run stegoshare-init                       # writes a gitignored .env
-set -a && . ./.env && set +a
 uv run flask --app stegoshare init-db
 uv run flask --app stegoshare run
 ```
 
+The app reads `.env` itself via python-dotenv, and refuses to start if
+`STEGOSHARE_SECRET_KEY` or `STEGOSHARE_FILE_KEK` is missing. There is
+deliberately no default for either.
+
 Then open <http://127.0.0.1:5000>.
 
 ```bash
-uv run pytest                                # 169 tests
+uv run pytest                                # 172 tests
 ```
 
 ## How access control works
 
 `grants.wrapped_dek` is **NULL until the approval threshold is met**. An
 unapproved recipient does not hold a permission flag that a route has to
-remember to check — they hold no key material at all. Authorization and key
+remember to check. They hold no key material at all. Authorization and key
 retrieval are the same query (`security.open_share`), so there is no code path
 that returns a key without having proved the grant.
 
@@ -78,7 +81,7 @@ all by ±1, PSNR 88.3 dB, ~1.9 s to generate.
 
 **One known limitation.** The header (28 bytes, 44 once its Reed-Solomon parity
 is added) must be readable before its own version byte is known, so it is
-embedded uniformly and cannot be cost-steered — the receiver would need cover
+embedded uniformly and cannot be cost-steered, because the receiver would need cover
 costs it does not have. The STC-controlled body puts ~0 changes in smooth
 regions; the header scatters uniformly, which for a small capsule is over half
 the total. `tests/test_adaptive.py` pins this down.
@@ -91,7 +94,7 @@ opening after the upgrade.
 The capsule carries Reed-Solomon parity on both header and body, sitting *below*
 the AEAD so it repairs damage before authentication runs. Damage within reach is
 repaired and the tag verifies; damage beyond it fails the tag and returns
-nothing. Security is unchanged — parity over ciphertext leaks nothing, and a
+nothing. Security is unchanged, since parity over ciphertext leaks nothing, and a
 mis-correction fails closed rather than yielding chosen plaintext.
 
 Measured on a 1200×900 carrier:
@@ -104,7 +107,7 @@ Measured on a 1200×900 carrier:
 | 48×48 pasted patch | 0/10 | 0/10 |
 
 **A scuff survives; an edit does not.** Raising parity buys one patch size for a
-much larger capsule and then stops helping — a bigger body occupies more carrier
+much larger capsule and then stops helping, because a bigger body occupies more carrier
 positions, so it catches more of any given patch. Damage tolerance and
 undetectability pull against each other, and this design favours undetectability.
 RS does nothing at all against recompression; only the lossless-PNG discipline
@@ -113,8 +116,8 @@ protects against that.
 ## Steganalysis gate
 
 `tests/test_steganalysis.py` runs a chi-square attack against our own output and
-fails the build if it fires. It is paired with a positive control — deliberate
-LSB replacement, which must be detected — because a gate that never fires
+fails the build if it fires. It is paired with a positive control, deliberate
+LSB replacement, which must be detected, because a gate that never fires
 measures nothing.
 
 **Read the result narrowly.** Chi-square is an old, weak detector that only
@@ -134,7 +137,7 @@ never state undetectability as an absolute.
 - **Any app that recompresses the image destroys the payload.** Send the PNG as
   a file. WhatsApp, Instagram and most email gateways will break it.
 - **Never reuse a cover image that exists anywhere else.** If someone can obtain
-  the original, they diff the two files and the hiding is over — no analysis
+  the original, they diff the two files and the hiding is over, with no analysis
   needed.
 
 ## Layout
@@ -156,43 +159,5 @@ stegoshare/
   shares.py      create, request, approve, open
   pipeline.py    orchestration + mandatory round-trip verification
 schema.sql
-tests/           169 tests, incl. steganalysis and corruption gates
+tests/           172 tests, incl. steganalysis and corruption gates
 ```
-
-## Hosting
-
-Every layer is config-driven, so deploying is a matter of changing values
-rather than code.
-
-**Object storage.** Two backends satisfy the same three-method contract and are
-covered by one shared suite of contract tests, so they cannot drift apart:
-
-```bash
-uv sync --extra s3
-
-STEGOSHARE_STORAGE=s3
-STEGOSHARE_S3_BUCKET=stegoshare-objects
-STEGOSHARE_S3_REGION=us-east-1
-# MinIO or Cloudflare R2 instead of AWS:
-STEGOSHARE_S3_ENDPOINT=http://127.0.0.1:9000
-```
-
-The bucket must be private. Credentials are deliberately not app config —
-boto3 resolves them from the environment, an instance role, or a profile, so a
-deployed instance can use a role and hold no long-lived key at all. A missing
-bucket name fails the boot, not the first upload.
-
-**Why there are no presigned URLs.** They are the usual advice for offloading
-downloads, and they do not fit this design: the bucket holds ciphertext under a
-per-share data key the recipient's browser never sees, so a direct URL would
-hand out unreadable bytes. Decryption stays server-side and objects are streamed
-from memory. That is a consequence of the server-held-keys trust model, and it
-also means an object is held in memory while it is decrypted — bounded by
-`MAX_CONTENT_LENGTH`, currently 25 MB.
-
-**Everything else:**
-
-- `STEGOSHARE_ENV=production` forces secure session cookies and adds HSTS.
-- Point `STEGOSHARE_RATELIMIT_URI` at Redis; in-memory limits are per-worker.
-- Run under gunicorn behind a reverse proxy. Never `flask run`.
-- Move from SQLite to Postgres once there is more than one writer.

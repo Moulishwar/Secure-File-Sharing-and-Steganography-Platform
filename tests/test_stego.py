@@ -41,7 +41,7 @@ def test_reference_capsule_round_trips(cover):
 
 
 def test_inline_capsule_round_trips(cover):
-    message = "Meet at the usual place. — bring the blue folder.".encode()
+    message = "Meet at the usual place. Bring the blue folder.".encode()
     image = stego.embed_capsule(cover(256, 256), MODE_INLINE, message, PASSWORD)
 
     mode, recovered = stego.extract_capsule(image, PASSWORD)

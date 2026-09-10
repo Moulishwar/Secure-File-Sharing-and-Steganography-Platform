@@ -251,3 +251,78 @@ def test_client_filename_never_becomes_a_path(app, actor, cover_png, tmp_path):
     assert len(written) == 1
     assert written[0].name.isalnum() and len(written[0].name) == 32
     assert not Path("/etc/passwd.tmp").exists()
+
+
+# --------------------------------------------------------------------------
+# download naming
+# --------------------------------------------------------------------------
+
+
+def test_text_share_downloads_with_a_txt_extension(actor, make_share):
+    """A title like "Imp" must not arrive as an extensionless file."""
+    owner = actor("owner@example.test", "Owner")
+    _, carrier = make_share(owner, content=b"the message body")
+
+    response = owner.client.post(
+        "/open",
+        data={"carrier": (io.BytesIO(carrier), "c.png"), "password": "share-password"},
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 200
+    assert ".txt" in response.headers["Content-Disposition"]
+
+
+def test_a_title_that_already_ends_in_txt_is_not_doubled(app, actor, cover_png):
+    owner = actor("owner@example.test", "Owner")
+    owner.client.post(
+        "/share",
+        data={
+            "kind": "text", "mode": "reference", "title": "notes.txt",
+            "message": "hello", "password": "share-password",
+            "cover": (io.BytesIO(cover_png(256, 256)), "cover.png"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    with app.app_context():
+        from stegoshare.db import get_db
+
+        name = get_db().execute(
+            "SELECT display_name FROM shares ORDER BY id DESC LIMIT 1"
+        ).fetchone()["display_name"]
+    assert name == "notes.txt"
+
+
+def test_file_shares_keep_their_own_extension(app, actor, cover_png):
+    owner = actor("owner@example.test", "Owner")
+    owner.client.post(
+        "/share",
+        data={
+            "kind": "file", "mode": "reference",
+            "payload": (io.BytesIO(b"%PDF-1.4 fake"), "report.pdf"),
+            "password": "share-password",
+            "cover": (io.BytesIO(cover_png(256, 256)), "cover.png"),
+        },
+        content_type="multipart/form-data",
+    )
+
+    with app.app_context():
+        from stegoshare.db import get_db
+
+        name = get_db().execute(
+            "SELECT display_name FROM shares ORDER BY id DESC LIMIT 1"
+        ).fetchone()["display_name"]
+    assert name == "report.pdf"
+
+
+def test_text_download_has_a_single_charset(actor, make_share):
+    """Werkzeug adds the charset for text/*; storing it too duplicated it."""
+    owner = actor("owner@example.test", "Owner")
+    _, carrier = make_share(owner, content=b"body")
+
+    response = owner.client.post(
+        "/open",
+        data={"carrier": (io.BytesIO(carrier), "c.png"), "password": "share-password"},
+        content_type="multipart/form-data",
+    )
+    assert response.headers["Content-Type"].count("charset") == 1
